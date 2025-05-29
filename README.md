@@ -7,6 +7,8 @@ and prediction limits in clinical prediction model research
 
 - Alexander Gibson
 
+- Robin Blythe
+
 - Nicole White
 
 - David Borg
