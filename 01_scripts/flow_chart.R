@@ -14,19 +14,19 @@ grViz("digraph {
         fontsize = 10]
   node [shape = rectangle,
   fixedsize = true,
-  width = 4]
+  width = 4.2]
   
-  'Develop statistical code/methods (EuroSCORE)'
+  'Develop statistical code/methods (EuroSCORE II)'
   'Test statistical code/methods (Framingham)'
   'Complete search'
   'Screen articles'
-  'Data collection'
+  'Collect data'
   'Pilot analysis on neurology'
-  'Potential changes to protocol'
+  'Potential protocol changes'
   'Complete final analysis'
   
-  'Develop statistical code/methods (EuroSCORE)' -> 'Test statistical code/methods (Framingham)' ->
-  'Complete search' ->'Screen articles' ->'Data collection' ->'Pilot analysis on neurology' ->'Potential changes to protocol' ->
+  'Develop statistical code/methods (EuroSCORE II)' -> 'Test statistical code/methods (Framingham)' ->
+  'Complete search' ->'Screen articles' ->'Collect data' ->'Pilot analysis on neurology' ->'Potential protocol changes' ->
   'Complete final analysis'
 
       }")

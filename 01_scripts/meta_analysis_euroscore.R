@@ -216,10 +216,14 @@ cum_discr_forest_plot %>%
   geom_linerange(data = discr_pred_nit,aes(y = 0,
                                            xmin = `95%CI_low`,
                                            xmax = `95%CI_upp`))+
-  coord_cartesian(xlim = c(0, 1))+
+  coord_cartesian(xlim = c(0.25, 1))+
+  scale_y_continuous(
+    breaks = 0:22,  # Include 0 (prediction interval) and studies 1-22
+    labels = c("Prediction Interval", 23:2)
+  ) +
   theme_classic()+
   labs(x = "Summary Estimate",
-       y = "Study")+
+       y = "Number of Studies")+
   geom_vline(aes(xintercept = 0.5), linetype = "longdash")
 
 
@@ -439,9 +443,13 @@ cum_cal_plot %>%
                                          xmin = `95%CI_low`,
                                          xmax = `95%CI_upp`))+
   coord_cartesian(xlim = c(0, 5))+
+  scale_y_continuous(
+    breaks = 0:22,  # Include 0 (prediction interval) and studies 1-22
+    labels = c("Prediction Interval", 23:2)
+  ) +
   theme_classic()+
   labs(x = "Summary Estimate",
-       y = "Study")+
+       y = "Number of Studies")+
   geom_vline(aes(xintercept = 1), linetype = "longdash")
 
 # save the plot
@@ -769,7 +777,7 @@ discr_combined <- data.frame(expand.grid(auc = discr_imp_sim, sample = discr_imp
 
 # average observed events
 euro_observed <- mean(EuroSCORE$Po)
-euro_non_observed <- 1-discr_observed
+euro_non_observed <- 1-euro_observed
 
 sim_data <- discr_combined %>% mutate(
   cstat = as.numeric(auc),
@@ -926,7 +934,7 @@ ggsave(filename = "03_figures/sim_new_study_discr_euroscore_tile.jpg",
 
 
 # a line plot
-sim_discr_square_plot_final %>% 
+sim_discr_square_plot_final %>%
   ggplot()+
   geom_line(aes(x = cstat, y = Mean, colour = as.factor(sample)))+
   theme_classic()+

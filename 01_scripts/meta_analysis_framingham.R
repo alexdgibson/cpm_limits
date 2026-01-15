@@ -130,7 +130,7 @@ hist(mcmc_out_discr$samples$chain2[,2])
 data_list <- list()
 
 # create n data lists in cumulative to complete meta-analysis each time
-for(i in 1:nrow(data)){ 
+for(i in 1:nrow(Framingham)){ 
   
   a <- as.numeric(data_discr[[1]][1:i])
   b <- as.numeric(data_discr[[2]][1:i])
