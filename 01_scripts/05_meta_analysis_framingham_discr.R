@@ -1,6 +1,9 @@
-# meta_analysis_euroscore.R
+# meta_analysis_framingham.R
 # run a Bayesian meta-analysis of AUC studies
-# August 2024
+# testing code from euroscore (meta_analysis_euroscore.R)
+
+# January 2025
+# Alexander D Gibson
 
 # load libraries
 library(dplyr)
@@ -18,13 +21,19 @@ library(viridis)
 # renv::restore()
 
 ### part 1: run the standard meta-analysis as a comparison ###
-# bring in euroscore data set from metamisc
-data(EuroSCORE)
+# bring in framingham data set from metamisc
+data(Framingham)
+
+# remove the three studies that do not have a c-stat
+discr <- Framingham %>% 
+  filter(AuthorYear != "Jee2014",
+         AuthorYear != "Ryckman2015",
+         AuthorYear != "Lloyd-Jones2004")
 
 # Meta-analysis of the c-statistic (random effects) through metamisc valmeta
 fit_discr <- valmeta(cstat = c.index, cstat.se = se.c.index, cstat.cilb = c.index.95CIl,
                      cstat.ciub = c.index.95CIu, cstat.cilv = 0.95, N = n, O = n.events,
-                     slab = Study, data = EuroSCORE)
+                     slab = AuthorYear, data = discr)
 
 # create a forest plot of the meta-analysis
 plot(fit_discr)
@@ -34,39 +43,41 @@ plot(fit_discr)
 fit_discr
 
 # check variance against sample size
-plot(log2(EuroSCORE$n), fit_discr$data$theta.se^2)
-median(EuroSCORE$n) # get the median study size
+plot(log2(discr$n), fit_discr$data$theta.se^2)
+median(discr$n) # get the median study size
 
 
 
 ### part 2a: run in nimble for the discrimination ###
 ## code; copied from metamisc, bugsmodels.r
 code_discr <- nimbleCode({
- ## Likelihood
- for (i in 1:N){ # loop through studies
-  theta[i] ~ dnorm(alpha[i], wsprec[i])
-  alpha[i] ~ dnorm(mu.tobs, bsprec) # study-specific estimate centered on overall mean
-  wsprec[i] <- 1/(theta.var[i]) # study-specific precision using observed variance
- }
- # priors
- bsTau ~ T(dt(0, (0.5^2), df = 3), 0, 10) # truncated, see paper for prior set-up
- mu.tobs ~ dnorm(0, 1/1000) # overall mean (logit)
- pred.tobs ~ dnorm(mu.tobs, bsprec) # prediction interval (logit)
- # back-transform to [0,1] and scalar:
- logit(mu.obs) <- mu.tobs
- logit(pred.obs) <- pred.tobs
- bsprec <- 1/(bsTau*bsTau) # transform SD to precision
+  ## Likelihood
+  for (i in 1:N){ # loop through studies
+    theta[i] ~ dnorm(alpha[i], wsprec[i])
+    alpha[i] ~ dnorm(mu.tobs, bsprec) # study-specific estimate centered on overall mean
+    wsprec[i] <- 1/(theta.var[i]) # study-specific precision using observed variance
+  }
+  # priors
+  bsTau ~ T(dt(0, (0.5^2), df = 3), 0, 10) # truncated, see paper for prior set-up
+  mu.tobs ~ dnorm(0, 1/1000) # overall mean (logit)
+  pred.tobs ~ dnorm(mu.tobs, bsprec) # prediction interval (logit)
+  # back-transform to [0,1] and scalar:
+  logit(mu.obs) <- mu.tobs
+  logit(pred.obs) <- pred.tobs
+  bsprec <- 1/(bsTau*bsTau) # transform SD to precision
 })
 
 ## data
-constants_discr <- list(N = nrow(EuroSCORE))
+constants_discr <- list(N = nrow(discr)) 
 
 data_discr <- list(theta.var = fit_discr$data$theta.se^2, # use results from valmeta | square the se to get the var
-             theta = fit_discr$data$theta) # this is the logit c-stat
+                   theta = fit_discr$data$theta) # this is the logit c-stat
+
+
 
 ## initial values
 inits_discr <- list(bsTau = 1,
-              mu.tobs = 0)
+                    mu.tobs = 0)
 
 # parameters to store
 parms_discr = c('mu.obs', 'pred.obs', 'bsTau')
@@ -119,7 +130,7 @@ hist(mcmc_out_discr$samples$chain2[,2])
 data_list <- list()
 
 # create n data lists in cumulative to complete meta-analysis each time
-for(i in 1:nrow(EuroSCORE)){
+for(i in 1:nrow(Framingham)){ 
   
   a <- as.numeric(data_discr[[1]][1:i])
   b <- as.numeric(data_discr[[2]][1:i])
@@ -169,7 +180,7 @@ for(i in 1:length(cum_discr)){
 
 # check that the meta-analysis was completed for each of the cumulative models
 for (i in 1:length(cum_meta_discr)){
-     print(cum_meta_discr[[i]]$model$summary$all.chains)
+  print(cum_meta_discr[[i]]$model$summary$all.chains)
 }
 
 # take the output of all chains from the model
@@ -199,15 +210,15 @@ for (i in 1:length(cum_discr_plot)){
 }
 
 # store the prediction interval of the meta-analysis
-# 23 as it is the 23rd meta-analysis
-discr_pred_nit <- cum_discr_plot[[23]][[1]][3,1:5]
+# 21 as it is the 21st meta-analysis
+discr_pred_nit <- cum_discr_plot[[21]][[1]][3,1:5] # change the 21 to the number of studies
 
 # plot a forest plot for the discrimination
 # for each of the cumulative models plot the mean and confidence interval
 # ensure remove the first study
 cum_discr_forest_plot %>% 
-  mutate(name = 23:1) %>% 
-  filter(name < 23) %>% # removes the first study so it is k-1 studies
+  mutate(name = 21:1) %>% # 21 is the number of studies
+  filter(name < 21) %>% # removes the first study so it is k-1 studies
   ggplot()+
   geom_point(aes(x = Mean, y = name), shape = 15)+
   geom_linerange(aes(y = name,
@@ -216,46 +227,27 @@ cum_discr_forest_plot %>%
   geom_linerange(data = discr_pred_nit,aes(y = 0,
                                            xmin = `95%CI_low`,
                                            xmax = `95%CI_upp`))+
-  coord_cartesian(xlim = c(0.25, 1))+
-  scale_y_continuous(
-    breaks = 0:22,  # Include 0 (prediction interval) and studies 1-22
-    labels = c("Prediction Interval", 23:2)
-  ) +
+  coord_cartesian(xlim = c(0, 1))+
   theme_classic()+
   labs(x = "Summary Estimate",
-       y = "Number of Studies")+
+       y = "Study")+
   geom_vline(aes(xintercept = 0.5), linetype = "longdash")
 
 
-ggsave(filename = "03_figures/cumulative_meta_discr_dash_zero.jpg",
+ggsave(filename = "03_figures/cumulative_meta_discr_dash_zero_framingham.jpg",
        width = 6,
        height = 4)
 
-
-### Part 2c: create a recursive cumulative meta-analysis plot ###
-# Take the data from the meta-analysis and calculate the recursive data
-# Plot into a graph
-cum_discr_forest_plot %>% 
-  mutate(recursive = (Mean-lag(Mean)),
-         step = 1:23) %>% 
-  ggplot(aes(x = step, y = recursive))+
-  geom_line(linewidth = 1)+
-  theme_classic()+
-  labs(x = "Each New Study",
-       y = "Change in Summary Estimate")+
-  geom_hline(aes(yintercept = 0.0), linetype = "longdash")
-
-# save the graph
-ggsave(filename = "03_figures/recursive_cumulative_meta_discr_dash_zero.jpg",
-       width = 6,
-       height = 4)
 
 
 
 ### Part 3a: create the model for the calibration ###
 # Meta-analysis of the O:E ratio (random effects)
-fit_cal <- valmeta(measure = "OE",  N = n, O = n.events, E = e.events,
-               slab = Study, data = EuroSCORE)
+# create dataset for the O:E of Framingham
+cal <- Framingham %>% 
+  filter(Po != 'NA')
+
+fit_cal <- valmeta(measure = "OE", Po = Po, Pe = Pe, N = n, data = cal)
 
 # check summary
 fit_cal
@@ -264,8 +256,8 @@ fit_cal
 plot(fit_cal)
 
 # check variance against sample size
-plot(log2(EuroSCORE$n), fit_cal$data$theta.se^2)
-median(EuroSCORE$n) # median study size
+plot(log2(cal$n), fit_cal$data$theta.se^2)
+median(cal$n) # median study size
 
 ## code; copied from metamisc, bugsmodels.r
 code_cal <- nimbleCode({
@@ -285,25 +277,25 @@ code_cal <- nimbleCode({
 })
 
 ## constants
-constants_cal <- list(N = nrow(EuroSCORE))
+constants_cal <- list(N = nrow(cal))
 
 # take the data from the valmeta fit
 # it will calculate the O:E from other params when not directly available 
 data_cal <- list(theta.var = fit_cal$data$theta.se^2, # use results from valmeta | square the se to get var
-             theta = fit_cal$data$theta)
+                 theta = fit_cal$data$theta)
 
 ## initial values
 inits_cal <- list(bsTau = 1,
-              mu.tobs = 0)
+                  mu.tobs = 0)
 
 # parameters to store
 parms_cal = c('mu.oe', 'pred.oe', 'bsTau')
 
 # model
 model_cal <- nimbleModel(code_cal, 
-                        data = data_cal, 
-                        inits = inits_cal, 
-                        constants = constants_cal)
+                         data = data_cal, 
+                         inits = inits_cal, 
+                         constants = constants_cal)
 
 # chain details
 n.chains = 2
@@ -313,15 +305,15 @@ seeds = c(1234,5678) # one per chain
 
 # MCMC samples
 mcmc_out_cal <- nimbleMCMC(model = model_cal,
-                       inits = inits_cal,
-                       monitors = parms_cal,
-                       niter = MCMC*2*thin, # times 2 for burn-in 
-                       thin = thin,
-                       nchains = n.chains, 
-                       nburnin = MCMC,
-                       summary = TRUE, 
-                       setSeed = seeds,
-                       WAIC = FALSE)
+                           inits = inits_cal,
+                           monitors = parms_cal,
+                           niter = MCMC*2*thin, # times 2 for burn-in 
+                           thin = thin,
+                           nchains = n.chains, 
+                           nburnin = MCMC,
+                           summary = TRUE, 
+                           setSeed = seeds,
+                           WAIC = FALSE)
 
 # view the summary of all chains
 mcmc_out_cal$summary
@@ -344,7 +336,7 @@ hist(mcmc_out_cal$samples$chain1[,2])
 data_list_cal <- list()
 
 # create n data lists in cumulative to complete meta-analysis each time
-for(i in 1:nrow(EuroSCORE)){
+for(i in 1:nrow(cal)){
   
   a <- as.numeric(data_cal[[1]][1:i])
   b <- as.numeric(data_cal[[2]][1:i])
@@ -426,14 +418,14 @@ for (i in 1:length(cum_cal_result)){
 }
 
 # take the prediction interval of the calibration
-cal_pred_nit <- cum_cal_result[[23]][[1]][3,1:5]
+cal_pred_nit <- cum_cal_result[[16]][[1]][3,1:5]
 
 # plot a forest plot for the discrimination
 # for each of the cumulative models plot the mean and confidence interval
 # this contains the first study which will be removed in final plots (k-1 studies)
 cum_cal_plot %>% 
-  mutate(name = 23:1) %>% 
-  filter(name < 23) %>% # removes the first study so it is k-1 studies
+  mutate(name = 16:1) %>% # the number of studies used in the meta analysis
+  filter(name < 16) %>% # removes the first study so it is k-1 studies
   ggplot()+
   geom_point(aes(x = Mean, y = name), shape = 15)+
   geom_linerange(aes(y = name,
@@ -443,60 +435,28 @@ cum_cal_plot %>%
                                          xmin = `95%CI_low`,
                                          xmax = `95%CI_upp`))+
   coord_cartesian(xlim = c(0, 5))+
-  scale_y_continuous(
-    breaks = 0:22,  # Include 0 (prediction interval) and studies 1-22
-    labels = c("Prediction Interval", 23:2)
-  ) +
   theme_classic()+
   labs(x = "Summary Estimate",
-       y = "Number of Studies")+
+       y = "Study")+
   geom_vline(aes(xintercept = 1), linetype = "longdash")
 
 # save the plot
-ggsave(filename = "03_figures/cumulative_meta_cal_dash_one.jpg",
+ggsave(filename = "03_figures/cumulative_meta_cal_dash_zero_framingham.jpg",
        width = 6,
        height = 4)
-
-
-
-
-
-
-### Part 3c: create a recursive cumulative meta-analysis plot ###
-# Take the data from the meta-analysis and calculate the recursive data
-# Plot into a graph
-cum_cal_plot %>% 
-  mutate(recursive = (Mean-lag(Mean))/lag(Mean),
-         step = 1:23) %>% 
-  ggplot(aes(x = step, y = recursive))+
-  geom_line(linewidth = 1)+
-  theme_classic()+
-  labs(x = "Each New Study",
-       y = "Relative Change in Calibration")+
-  geom_hline(aes(yintercept = 0.0), linetype = "longdash")
-
-# save the graph
-ggsave(filename = "03_figures/recursive_cumulative_meta_cal_dash_zero.jpg",
-       width = 6,
-       height = 4)
-
-
-
-
-
 
 
 ### Part 4 create a funnel plot for the discrimination and calibration ###
 # use the metamisc package function fat() to do so
 
 # create the objects needed for the fat function
-b_discr <- EuroSCORE$c.index
-b_se_discr <- EuroSCORE$se.c.index
-n_total_discr <- EuroSCORE$n
-d_total_discr <- EuroSCORE$n.events
+b_discr <- Framingham$c.index
+b_se_discr <- Framingham$se.c.index
+n_total_discr <- Framingham$n
+d_total_discr <- Framingham$n.events
 
 # complete the meta-regression using fat for the discrimination
-funnel_discr <- EuroSCORE %>% fat(b = b_discr,
+funnel_discr <- Framingham %>% fat(b = b_discr,
                                   b.se = b_se_discr,
                                   n.total = n_total_discr,
                                   d.total = n_total_discr,
@@ -510,17 +470,17 @@ plot(x = funnel_discr,
 
 
 # create the objects needed for the fat function
-b_cal <- EuroSCORE$Po/EuroSCORE$Pe
-b_se_cal <- EuroSCORE$SD.Pe/sqrt(EuroSCORE$n)
-n_total_cal <- EuroSCORE$n
-d_total_cal <- EuroSCORE$n.events
+b_cal <- Framingham$Po/Framingham$Pe
+b_se_cal <- Framingham$SD.Pe/sqrt(Framingham$n)
+n_total_cal <- Framingham$n
+d_total_cal <- Framingham$n.events
 
 # complete the meta-regression using fat for the calibration
-funnel_cal <- EuroSCORE %>% fat(b = b_cal,
-                                b.se = b_se_cal,
-                                n.total = n_total_cal,
-                                d.total = d_total_cal,
-                                method = "M-FIV")
+funnel_cal <- Framingham %>% fat(b = b_cal,
+                                 b.se = b_se_cal,
+                                 n.total = n_total_cal,
+                                 d.total = d_total_cal,
+                                 method = "M-FIV")
 
 # plot the funnel plot for the calibration
 plot(x = funnel_cal,
@@ -548,8 +508,8 @@ mean_function <- function(data, indices) {
 
 # boot strap the samples 1000 times
 discr_boot_out <- boot(data = discr_boot,
-                          statistic = mean_function,
-                          R = 1000)
+                       statistic = mean_function,
+                       R = 1000)
 # check the output
 discr_boot_out
 
@@ -572,8 +532,8 @@ mean_function <- function(data, indices) {
 
 # boot strap the samples 1000 times
 discr_var_boot_out <- boot(data = discr_var_boot,
-                          statistic = mean_function,
-                          R = 1000)
+                           statistic = mean_function,
+                           R = 1000)
 # check the output
 discr_var_boot_out
 
@@ -603,8 +563,8 @@ mean_function <- function(data, indices) {
 
 # boot strap the samples 1000 times
 cal_boot_out <- boot(data = cal_boot,
-                       statistic = mean_function,
-                       R = 1000)
+                     statistic = mean_function,
+                     R = 1000)
 # check the output
 cal_boot_out
 
@@ -627,8 +587,8 @@ mean_function <- function(data, indices) {
 
 # boot strap the samples 1000 times
 cal_var_boot_out <- boot(data = cal_var_boot,
-                           statistic = mean_function,
-                           R = 1000)
+                         statistic = mean_function,
+                         R = 1000)
 # check the output
 cal_var_boot_out
 
@@ -656,16 +616,16 @@ constants_discr_boot <- list(N = length(data_discr_boot[[1]])) # changed to add 
 
 ## initial values
 inits_discr_boot <- list(bsTau = 1,
-                    mu.tobs = 0)
+                         mu.tobs = 0)
 
 # parameters to store
 parms_discr_boot = c('mu.obs', 'pred.obs', 'bsTau')
 
 # models
 model_discr_boot <- nimbleModel(code_discr, 
-                           data = data_discr_boot, 
-                           inits = inits_discr_boot, 
-                           constants = constants_discr_boot)
+                                data = data_discr_boot, 
+                                inits = inits_discr_boot, 
+                                constants = constants_discr_boot)
 
 # chain details
 n.chains = 2
@@ -708,7 +668,7 @@ constants_cal_boot <- list(N = length(data_cal_boot[[1]]))
 
 ## initial values
 inits_cal_boot <- list(bsTau = 1,
-                         mu.tobs = 0)
+                       mu.tobs = 0)
 
 # parameters to store
 parms_cal_boot = c('mu.oe', 'pred.oe', 'bsTau')
@@ -727,15 +687,15 @@ seeds = c(1234,5678) # one per chain
 
 # MCMC samples
 mcmc_out_cal_boot <- nimbleMCMC(model = model_cal_boot,
-                                  inits = inits_cal_boot,
-                                  monitors = parms_cal_boot,
-                                  niter = MCMC*2*thin, # times 2 for burn-in 
-                                  thin = thin,
-                                  nchains = n.chains, 
-                                  nburnin = MCMC,
-                                  summary = TRUE, 
-                                  setSeed = seeds,
-                                  WAIC = FALSE)
+                                inits = inits_cal_boot,
+                                monitors = parms_cal_boot,
+                                niter = MCMC*2*thin, # times 2 for burn-in 
+                                thin = thin,
+                                nchains = n.chains, 
+                                nburnin = MCMC,
+                                summary = TRUE, 
+                                setSeed = seeds,
+                                WAIC = FALSE)
 
 # view the summary of all chains
 mcmc_out_cal_boot$summary$all.chains
@@ -758,33 +718,27 @@ discr_imp_sim <- list()
 # loop auc improvements by 0.01 till 1.0
 for (i in 1:((1 - round(mcmc_out_discr$summary$all.chains[2], digits = 2)) * 100)){
   
-   tmp <- round(mcmc_out_discr$summary$all.chains[2], digits = 2) + (i * 0.01)
-   
-   discr_imp_sim[i] <- tmp
+  tmp <- round(mcmc_out_discr$summary$all.chains[2], digits = 2) + (i * 0.01)
+  
+  discr_imp_sim[i] <- tmp
 }
 
 # simulate the sample sizes
 discr_imp_sim_samp <- list(100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200)
 
 # join the c-stat an the standard error together
-# also where the AUC value is 1.0 change it to 0.99999 as 1.0 goes to infinity
-discr_combined <- data.frame(expand.grid(auc = discr_imp_sim, sample = discr_imp_sim_samp)) %>%
-  mutate(auc = ifelse(auc == 1.0, 0.99999, auc))
+discr_combined <- data.frame(expand.grid(auc = discr_imp_sim, sample = discr_imp_sim_samp))
 
 
 # simulate standard errors from the different samples sizes
 # formula from Newcombe 2005 to estimate standard error of the c-statistic
 
-# average observed events
-euro_observed <- mean(EuroSCORE$Po)
-euro_non_observed <- 1-euro_observed
-
 sim_data <- discr_combined %>% mutate(
   cstat = as.numeric(auc),
   theta = logit(cstat),
   sample = as.numeric(sample),
-  n = sample*euro_observed, # using the average observed events from all the studies in the meta-analysis
-  m = sample*euro_non_observed, # using the average non-observed events from all the studies in the meta-analysis
+  n = sample*0.05, # 0.1 for 10% observed events
+  m = sample*0.95, # 0.9 for 90% non-observed events
   star = (0.5*sample)-1,
   logit.se.c = sqrt(((1+star)*((1-cstat)/(2-cstat))+((star*cstat)/(1+cstat)))/(n*m*cstat*(1-cstat)))
 ) %>% select(
@@ -821,7 +775,7 @@ for (i in 1:length(sim_data_list[[1]])) {
 }
 
 # data
-sim_constants_discr <- list(N = nrow(EuroSCORE)+1) # add one for the new simulated study
+sim_constants_discr <- list(N = nrow(discr)+1) # add one for the new simulated study
 
 # initial values
 inits_discr <- list(bsTau = 1,
@@ -838,6 +792,8 @@ seeds = c(1234,5678) # one per chain
 
 
 # create n models to then be run through NimbleMCMC
+# may need to increase the maximum number of dynamic linked libraries (DLLs) beyond the standard
+
 # create an empty list to store data
 sim_study_model <- list()
 
@@ -845,9 +801,9 @@ sim_study_model <- list()
 for(i in 1:length(sim_data_list[[1]])){
   
   sim_model_discr <- nimbleModel(code_discr, 
-                           data = all_study_data[[i]], 
-                           inits = inits_discr, 
-                           constants = sim_constants_discr)
+                                 data = all_study_data[[i]], 
+                                 inits = inits_discr, 
+                                 constants = sim_constants_discr)
   name <- paste('item', i, sep='')
   tmp <- list(model_1 = sim_model_discr)
   sim_study_model[[name]] <- tmp
@@ -890,7 +846,7 @@ sim_discr_plot <- list()
 
 # take the outputs of each model with the sample size and increment improvement
 for (i in 1:length(sim_meta_discr)){
-
+  
   mu <- sim_meta_discr[[i]]$model$summary$all.chains
   mu_df <- as.data.frame(mu)
   name <- paste('study', i, sep='')
@@ -905,14 +861,14 @@ sim_discr_square_plot <- data.frame()
 
 # take mu and confidence intervals
 for (i in 1:length(sim_discr_plot)){
-
+  
   df <- as.data.frame(sim_discr_plot[[i]][[1]][2,1:5])
   sim_discr_square_plot <- rbind(sim_discr_square_plot, df)
 }
 
 
 # join this data with the sample size and incremental improvement data frame
-sim_discr_square_plot_final <- cbind(sim_discr_square_plot, sim_data)
+sim_discr_square_plot_final <- cbind(sim_discr_square_plot, sim_data[1:247, 1:6])
 
 # plot square plot of the sample size, improvement and overall 
 # for each of the cumulative models plot the mean and confidence interval
@@ -920,31 +876,31 @@ sim_discr_square_plot_final <- cbind(sim_discr_square_plot, sim_data)
 # a heat mat tile plot
 sim_discr_square_plot_final %>%
   ggplot()+
-    geom_tile(aes(x = as.factor(sample), y = cstat, fill = Mean))+
+  geom_tile(aes(x = as.factor(sample), y = cstat, fill = Mean))+
   scale_x_discrete()+
   scale_fill_viridis(option="viridis")+
-  labs(x = "Sample Size",
-       y = "Simulated Study C-statistic",
-       fill = "Meta-Analysis Summary Estiamte")+
+  labs(x = "",
+       y = "",
+       fill = "")+
   theme_classic()
 
-ggsave(filename = "03_figures/sim_new_study_discr_euroscore_tile.jpg",
+ggsave(filename = "",
        width = 8,
        height = 4)
 
 
 # a line plot
-sim_discr_square_plot_final %>%
+sim_discr_square_plot_final %>% 
   ggplot()+
   geom_line(aes(x = cstat, y = Mean, colour = as.factor(sample)))+
   theme_classic()+
-  labs(x = "Simulated Study C-Statistic",
-       y = "Meta-Analysis Summary Estiamte",
+  labs(x = "Simulated C-Statistic",
+       y = "Summary Estimate",
        colour = "Sample Size")+
   scale_color_viridis(discrete=TRUE)
 
 
-ggsave(filename = "03_figures/sim_new_study_discr_euroscore_line.jpg",
+ggsave(filename = "03_figures/sim_new_study_cal_euroscore_line.jpg",
        width = 6,
        height = 4)
 
@@ -980,7 +936,7 @@ cal_combined <- data.frame(expand.grid(o.e = cal_imp_sim, sample = cal_imp_sim_s
 sim_data_cal <- cal_combined %>% mutate(
   o.e = as.numeric(o.e),
   n = as.numeric(sample),
-  o = n * euro_observed, # made as the average obsered number of events as the data set simulated from
+  o = n * 0.05, # this is 5% observed | same as the observed discrimination
   e = o / o.e,
   theta = log(o/e), # observed:expected ratio on the log scale
   theta.se = sqrt((1-(o/n))/o)) %>% select( # log o:e standard error
@@ -1015,11 +971,11 @@ for (i in 1:length(sim_data_list_cal[[1]])) {
 }
 
 # data
-sim_constants_cal <- list(N = nrow(EuroSCORE)+1) # add one for the new simulated study
+sim_constants_cal <- list(N = nrow()+1) # add one for the new simulated study
 
 # initial values
 inits_cal <- list(bsTau = 1,
-                    mu.tobs = 0)
+                  mu.tobs = 0)
 
 # parameters to store
 parms_cal = c('mu.oe', 'pred.oe', 'bsTau')
@@ -1039,9 +995,9 @@ sim_study_model_cal <- list()
 for(i in 1:length(sim_data_list_cal[[1]])){
   
   sim_model_cal <- nimbleModel(code_cal, 
-                                 data = all_study_data_cal[[i]], 
-                                 inits = inits_cal, 
-                                 constants = sim_constants_cal)
+                               data = all_study_data_cal[[i]], 
+                               inits = inits_cal, 
+                               constants = sim_constants_cal)
   name <- paste('item', i, sep='')
   tmp <- list(model_1 = sim_model_cal)
   sim_study_model_cal[[name]] <- tmp
@@ -1057,15 +1013,15 @@ sim_meta_cal <- list()
 for(i in 1:length(sim_study_model_cal)){
   
   mcmc_out_cal <- nimbleMCMC(model = sim_study_model_cal[[i]][[1]],
-                               inits = inits_cal,
-                               monitors = parms_cal,
-                               niter = MCMC*2*thin, # times 2 for burn-in 
-                               thin = thin,
-                               nchains = n.chains, 
-                               nburnin = MCMC,
-                               summary = TRUE, 
-                               setSeed = seeds,
-                               WAIC = FALSE)
+                             inits = inits_cal,
+                             monitors = parms_cal,
+                             niter = MCMC*2*thin, # times 2 for burn-in 
+                             thin = thin,
+                             nchains = n.chains, 
+                             nburnin = MCMC,
+                             summary = TRUE, 
+                             setSeed = seeds,
+                             WAIC = FALSE)
   
   name <- paste('meta', i, sep='')
   tmp <- list(model = mcmc_out_cal)
@@ -1116,13 +1072,13 @@ sim_cal_square_plot_final %>%
   ggplot()+
   geom_line(aes(x = o.e, y = Mean, colour = as.factor(n)))+
   theme_classic()+
-  labs(y = "Meta-Analysis Calibration Summary Estimate",
-       x = "Simulated Study O:E Ratio",
-       colour = "Sample Size")+
+  labs(y = "",
+       x = "",
+       colour = "")+
   scale_color_viridis(discrete=TRUE)
 
 
-ggsave(filename = "03_figures/sim_new_study_cal_euroscore.jpg",
+ggsave(filename = "",
        width = 6,
        height = 4)
 
