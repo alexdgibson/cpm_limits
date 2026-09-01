@@ -12,7 +12,7 @@ library(purrr)
 
 
 # set the time frame for the search
-year <- 1950:2025
+year <- 1950:2026
 
 # combine different search terms and dates to be extracted from rentrez
 predict <- glue('"predict*" AND {year}[PDAT]"')
@@ -37,8 +37,8 @@ cpm_count %>%
   theme_classic() +
   labs(y = "Proportion",
        x = "Year") +
-  geom_hline(yintercept = 0.1, linetype = "dashed", alpha = 0.3)+
-  scale_x_continuous(limits = c(1950, 2025), breaks = c(1950, 1975, 2000, 2025))+
+  geom_hline(yintercept = 0.125, linetype = "dashed", alpha = 0.3)+
+  scale_x_continuous(limits = c(1950, 2026), breaks = c(1950, 1975, 2000, 2025))+
   scale_y_continuous(limits = c(0,0.15))+
   theme(text = element_text(size = 12))
 
